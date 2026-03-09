@@ -4,6 +4,15 @@
 Auto-discovers the Infrastructure Manager deployment, connects to the GKE
 cluster, sets up port forwarding, retrieves admin credentials, and presents
 clickable access links.
+
+Expected Cloud Shell URL (from Terraform output):
+  https://console.cloud.google.com/cloudshell/editor
+    ?project=PROJECT_ID
+    &cloudshell_git_repo=https://github.com/ORG/cs-connect.git
+    &cloudshell_tutorial=tutorial.md
+    &show=terminal
+
+The ?project= parameter ensures DEVSHELL_PROJECT_ID is set automatically.
 """
 
 import json
@@ -99,34 +108,32 @@ def detect_environment() -> dict:
 
 def discover_deployment(project_id: str) -> dict:
     """Find Data Commons deployment via Infrastructure Manager."""
-    locations = [
-        "us-central1",
-        "us-east1",
-        "us-west1",
-        "europe-west1",
-        "asia-east1",
-    ]
+    result = _run(
+        [
+            "gcloud", "infra-manager", "deployments", "list",
+            f"--project={project_id}",
+            "--location=-",
+            "--format=json",
+        ],
+        timeout=60,
+    )
 
     all_deployments: list[dict] = []
-    for location in locations:
-        result = _run(
-            [
-                "gcloud", "infra-manager", "deployments", "list",
-                f"--project={project_id}",
-                f"--location={location}",
-                "--format=json",
-            ],
-            timeout=30,
-        )
-        if result.returncode != 0 or not result.stdout.strip():
-            continue
+    if result.returncode == 0 and result.stdout.strip():
         try:
             deployments = json.loads(result.stdout)
         except json.JSONDecodeError:
-            continue
+            deployments = []
         for d in deployments:
             if d.get("state") == "ACTIVE":
-                d["_location"] = location
+                # Extract location from the resource name field:
+                # projects/*/locations/*/deployments/*
+                name = d.get("name", "")
+                parts = name.split("/")
+                if "locations" in parts:
+                    loc_idx = parts.index("locations")
+                    if loc_idx + 1 < len(parts):
+                        d["_location"] = parts[loc_idx + 1]
                 all_deployments.append(d)
 
     if not all_deployments:

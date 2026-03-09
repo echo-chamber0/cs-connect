@@ -111,12 +111,18 @@ Your Data Commons Accelerator instance is ready.
 **Keep this Cloud Shell tab open** to maintain the port forwarding connection. If it disconnects, simply re-run:
 
 ```sh
-python3 setup.py
+python3 connect.py
 ```
 
 **Useful links:**
 - [Data Commons Documentation](https://docs.datacommons.org/)
 - [Custom Data Commons Guide](https://docs.datacommons.org/custom_dc/)
 - [GCP Marketplace](https://console.cloud.google.com/marketplace)
+
+**Cloud Shell URL format** (for sharing or bookmarking):
+```
+https://console.cloud.google.com/cloudshell/editor?project=PROJECT_ID&cloudshell_git_repo=https://github.com/ORG/cs-connect.git&cloudshell_tutorial=tutorial.md&show=terminal
+```
+Use `console.cloud.google.com` (not `shell.cloud.google.com`) to support the `?project=` parameter for auto-setting GCP project context.
 
 To clean up resources, delete the deployment from the Infrastructure Manager console.
