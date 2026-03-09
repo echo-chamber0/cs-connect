@@ -276,13 +276,19 @@ def extract_details(deployment: dict, project_id: str) -> dict:
             resources = []
 
         for r in resources:
+            if not isinstance(r, dict):
+                continue
             tf_info = r.get("terraformInfo", {})
+            if not isinstance(tf_info, dict):
+                continue
             tf_type = tf_info.get("type", "")
             tf_id = tf_info.get("id", "")
 
             if tf_type == "google_container_cluster":
                 cluster_name = tf_id
                 for asset in r.get("caiAssets", []):
+                    if not isinstance(asset, dict):
+                        continue
                     full_name = asset.get("fullResourceName", "")
                     parts = full_name.split("/")
                     if "locations" in parts:
@@ -309,10 +315,14 @@ def extract_details(deployment: dict, project_id: str) -> dict:
             try:
                 revision = json.loads(rev_result.stdout)
                 outputs = revision.get("applyResults", {}).get("outputs", {})
+                if not isinstance(outputs, dict):
+                    outputs = {}
                 if "namespace" in outputs:
-                    namespace = namespace or outputs["namespace"].get("value")
+                    raw = outputs["namespace"]
+                    namespace = namespace or (raw.get("value") if isinstance(raw, dict) else raw)
                 if "gcs_bucket_url" in outputs:
-                    gcs_bucket = gcs_bucket or outputs["gcs_bucket_url"].get("value")
+                    raw = outputs["gcs_bucket_url"]
+                    gcs_bucket = gcs_bucket or (raw.get("value") if isinstance(raw, dict) else raw)
             except json.JSONDecodeError:
                 pass
 
