@@ -1,0 +1,13 @@
+#!/bin/bash
+# Cloud Shell initialization -- runs automatically on workspace open
+set -e
+
+echo ""
+echo "  Data Commons Accelerator -- Connecting to your instance..."
+echo ""
+
+# Install Python dependencies
+pip3 install --user -q -r requirements.txt 2>/dev/null
+
+# Launch the connection tool
+python3 connect.py
