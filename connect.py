@@ -1,18 +1,7 @@
 #!/usr/bin/env python3
-"""Data Commons Accelerator -- Cloud Shell Connection Tool.
+"""Cloud Shell connection tool for Data Commons Accelerator.
 
-Auto-discovers the Infrastructure Manager deployment, connects to the GKE
-cluster, sets up port forwarding, retrieves admin credentials, and presents
-clickable access links.
-
-Expected Cloud Shell URL (from Terraform output):
-  https://console.cloud.google.com/cloudshell/editor
-    ?project=PROJECT_ID
-    &cloudshell_git_repo=https://github.com/ORG/cs-connect.git
-    &cloudshell_tutorial=tutorial.md
-    &show=terminal
-
-The ?project= parameter ensures DEVSHELL_PROJECT_ID is set automatically.
+Usage: python3 connect.py
 """
 
 import json
@@ -23,20 +12,15 @@ import sys
 import time
 from base64 import b64decode
 
-# ---------------------------------------------------------------------------
-# Rich library bootstrap -- install automatically if missing
-# ---------------------------------------------------------------------------
 try:
     from rich.console import Console
     from rich.panel import Panel
     from rich.progress import Progress, SpinnerColumn, TextColumn
-    from rich.table import Table
     from rich import box
 except ImportError:
     subprocess.check_call(
-        [sys.executable, "-m", "pip", "install", "--user", "-q", "rich", "questionary"],
+        [sys.executable, "-m", "pip", "install", "--user", "-q", "rich"],
     )
-    # Refresh sys.path so the freshly-installed packages are importable.
     import importlib
     import site
 
@@ -44,18 +28,13 @@ except ImportError:
     from rich.console import Console
     from rich.panel import Panel
     from rich.progress import Progress, SpinnerColumn, TextColumn
-    from rich.table import Table
     from rich import box
 
 console = Console()
 
 
-# ============================================================================
-# Helpers
-# ============================================================================
-
 def _run(cmd: list[str], *, timeout: int = 30) -> subprocess.CompletedProcess:
-    """Run a subprocess with timeout, capturing stdout/stderr."""
+    """Run a subprocess with timeout."""
     try:
         return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
     except subprocess.TimeoutExpired:
@@ -63,83 +42,15 @@ def _run(cmd: list[str], *, timeout: int = 30) -> subprocess.CompletedProcess:
 
 
 def _fatal(message: str, hint: str | None = None) -> None:
-    """Print an error and exit."""
+    """Print error and exit."""
     console.print(f"\n[red]{message}[/red]")
     if hint:
         console.print(f"[dim]{hint}[/dim]")
     sys.exit(1)
 
 
-# ============================================================================
-# Auth: Ensure gcloud is authenticated before any API calls
-# ============================================================================
-
-def ensure_auth() -> None:
-    """Ensure gcloud is authenticated, triggering login only outside Cloud Shell.
-
-    In Cloud Shell (the expected path), the user is already authenticated via
-    their Console session.  We just set the active project and move on.
-    Outside Cloud Shell, we attempt interactive login if needed.
-    """
-    in_cloud_shell = os.environ.get("CLOUD_SHELL") == "true"
-
-    if in_cloud_shell:
-        # Cloud Shell inherits auth from the Console session.
-        # Skip token checks — they can give false negatives and trigger
-        # confusing "You are already authenticated" prompts.
-        _set_active_project()
-        return
-
-    # --- outside Cloud Shell: check token ------------------------------------
-    token_result = _run(["gcloud", "auth", "print-access-token"], timeout=15)
-    if token_result.returncode == 0 and token_result.stdout.strip():
-        _set_active_project()
-        return
-
-    # --- not authenticated — run interactive login ----------------------------
-    console.print("  [cyan]Authorizing access...[/cyan]")
-
-    auth_result = subprocess.run(
-        ["gcloud", "auth", "login", "--update-adc"],
-        check=False,
-    )
-
-    if auth_result.returncode != 0:
-        _fatal(
-            "Authentication did not complete.",
-            "Run manually:  gcloud auth login --update-adc",
-        )
-
-    # --- verify auth succeeded ------------------------------------------------
-    verify = _run(["gcloud", "auth", "print-access-token"], timeout=15)
-    if verify.returncode != 0 or not verify.stdout.strip():
-        _fatal(
-            "Authentication could not be verified.",
-            "Run manually:  gcloud auth login --update-adc",
-        )
-
-    console.print("  [green]\u2713[/green] Authenticated")
-    _set_active_project()
-
-
-def _set_active_project() -> None:
-    """Set the active gcloud project from environment variables."""
-    project_id = (
-        os.environ.get("DEVSHELL_PROJECT_ID")
-        or os.environ.get("GOOGLE_CLOUD_PROJECT")
-        or ""
-    ).strip()
-    if project_id:
-        _run(["gcloud", "config", "set", "project", project_id], timeout=10)
-
-
-# ============================================================================
-# Phase 1: Environment Detection
-# ============================================================================
-
 def detect_environment() -> dict:
     """Detect Cloud Shell environment and active GCP project."""
-    in_cloud_shell = os.environ.get("CLOUD_SHELL") == "true"
     project_id = (
         os.environ.get("DEVSHELL_PROJECT_ID")
         or os.environ.get("GOOGLE_CLOUD_PROJECT")
@@ -159,15 +70,29 @@ def detect_environment() -> dict:
         )
 
     return {
-        "in_cloud_shell": in_cloud_shell,
         "project_id": project_id,
         "web_host": web_host,
     }
 
 
-# ============================================================================
-# Phase 2: Deployment Discovery
-# ============================================================================
+def _is_datacommons_deployment(deployment: dict) -> bool:
+    """Check whether an Infrastructure Manager deployment is Data Commons."""
+    blueprint = deployment.get("terraformBlueprint")
+    if isinstance(blueprint, dict):
+        input_values = blueprint.get("inputValues")
+        if isinstance(input_values, dict):
+            helm_entry = input_values.get("helm_chart_name")
+            if isinstance(helm_entry, dict):
+                chart_name = helm_entry.get("inputValue", "")
+                if isinstance(chart_name, str) and "datacommons" in chart_name.lower():
+                    return True
+
+    name = deployment.get("name", "")
+    if isinstance(name, str) and "datacommons" in name.lower():
+        return True
+
+    return False
+
 
 def discover_deployment(project_id: str) -> dict:
     """Find Data Commons deployment via Infrastructure Manager."""
@@ -181,7 +106,7 @@ def discover_deployment(project_id: str) -> dict:
         timeout=60,
     )
 
-    all_deployments: list[dict] = []
+    active_deployments: list[dict] = []
     if result.returncode == 0 and result.stdout.strip():
         try:
             deployments = json.loads(result.stdout)
@@ -189,17 +114,15 @@ def discover_deployment(project_id: str) -> dict:
             deployments = []
         for d in deployments:
             if d.get("state") == "ACTIVE":
-                # Extract location from the resource name field:
-                # projects/*/locations/*/deployments/*
                 name = d.get("name", "")
                 parts = name.split("/")
                 if "locations" in parts:
                     loc_idx = parts.index("locations")
                     if loc_idx + 1 < len(parts):
                         d["_location"] = parts[loc_idx + 1]
-                all_deployments.append(d)
+                active_deployments.append(d)
 
-    if not all_deployments:
+    if not active_deployments:
         _fatal(
             "No active Infrastructure Manager deployments found.",
             f"Project: {project_id}\n"
@@ -207,43 +130,48 @@ def discover_deployment(project_id: str) -> dict:
             "Check: https://console.cloud.google.com/infra-manager/deployments",
         )
 
-    if len(all_deployments) == 1:
-        return all_deployments[0]
+    dc_deployments = [d for d in active_deployments if _is_datacommons_deployment(d)]
 
-    # Multiple deployments -- let user pick.
-    console.print(f"\n[cyan]Found {len(all_deployments)} active deployments:[/cyan]\n")
-    names: list[str] = []
-    for i, d in enumerate(all_deployments, 1):
+    if not dc_deployments:
+        _fatal(
+            f"No Data Commons deployments found ({len(active_deployments)} other deployment"
+            f"{'s' if len(active_deployments) != 1 else ''} exist).",
+            "This tool only works with Data Commons Accelerator deployments from GCP Marketplace.",
+        )
+
+    if len(dc_deployments) == 1:
+        return dc_deployments[0]
+
+    console.print(f"\n[cyan]Found {len(dc_deployments)} Data Commons deployments:[/cyan]\n")
+    labels: list[str] = []
+    for i, d in enumerate(dc_deployments, 1):
         name = d.get("name", "").split("/")[-1]
-        names.append(name)
-        create_time = d.get("createTime", "unknown")[:19]
-        console.print(f"  {i}. {name} (created: {create_time})")
+        region = d.get("_location", "unknown")
+        create_date = d.get("createTime", "")[:10] or "unknown"
+        label = f"{name} ({region}, created: {create_date})"
+        labels.append(label)
+        console.print(f"  {i}. {label}")
     console.print()
 
-    # Try questionary for a polished selector, fall back to plain input.
     try:
         import questionary
 
-        selected = questionary.select("Select deployment:", choices=names).ask()
+        selected = questionary.select("Select deployment:", choices=labels).ask()
         if not selected:
             sys.exit(0)
-        return all_deployments[names.index(selected)]
+        return dc_deployments[labels.index(selected)]
     except ImportError:
         pass
 
-    choice = input(f"Select deployment (1-{len(all_deployments)}): ").strip()
+    choice = input(f"Select deployment (1-{len(dc_deployments)}): ").strip()
     try:
         idx = int(choice) - 1
-        if not 0 <= idx < len(all_deployments):
+        if not 0 <= idx < len(dc_deployments):
             raise ValueError
     except ValueError:
         _fatal("Invalid selection.")
-    return all_deployments[idx]
+    return dc_deployments[idx]
 
-
-# ============================================================================
-# Phase 3: Extract Deployment Details
-# ============================================================================
 
 def extract_details(deployment: dict, project_id: str) -> dict:
     """Extract cluster name, region, namespace from the deployment."""
@@ -258,7 +186,6 @@ def extract_details(deployment: dict, project_id: str) -> dict:
             f"/deployments/{deployment_short}/revisions/r-0"
         )
 
-    # List resources to locate the GKE cluster.
     result = _run(
         [
             "gcloud", "infra-manager", "resources", "list",
@@ -347,10 +274,6 @@ def extract_details(deployment: dict, project_id: str) -> dict:
     }
 
 
-# ============================================================================
-# Phase 4: Connect to Cluster
-# ============================================================================
-
 def connect_to_cluster(details: dict, project_id: str) -> None:
     """Configure kubectl credentials and wait for pods to become ready."""
     result = _run(
@@ -368,12 +291,11 @@ def connect_to_cluster(details: dict, project_id: str) -> None:
             result.stderr.strip() or None,
         )
 
-    # Wait for datacommons pods.
     result = _run(
         [
             "kubectl", "wait", "--for=condition=ready", "pod",
             "-l", "app=datacommons",
-            f"-n", details["namespace"],
+            "-n", details["namespace"],
             "--timeout=180s",
         ],
         timeout=200,
@@ -385,10 +307,6 @@ def connect_to_cluster(details: dict, project_id: str) -> None:
             console.print(f"[dim]{diag.stdout}[/dim]")
         console.print("[yellow]Some pods may not be ready yet. Continuing...[/yellow]")
 
-
-# ============================================================================
-# Phase 5: Port Forwarding and Credentials
-# ============================================================================
 
 def start_port_forward(namespace: str) -> subprocess.Popen:
     """Start kubectl port-forward in the background."""
@@ -402,7 +320,6 @@ def start_port_forward(namespace: str) -> subprocess.Popen:
         stderr=subprocess.PIPE,
     )
 
-    # Poll for port to become available (up to 10 seconds)
     for _ in range(20):
         if process.poll() is not None:
             stderr = process.stderr.read().decode() if process.stderr else ""
@@ -413,7 +330,6 @@ def start_port_forward(namespace: str) -> subprocess.Popen:
         except OSError:
             time.sleep(0.5)
 
-    # If still not ready after 10s, check if process is alive
     if process.poll() is not None:
         stderr = process.stderr.read().decode() if process.stderr else ""
         _fatal("Port-forward failed.", stderr.strip() or None)
@@ -453,10 +369,6 @@ def get_credentials(namespace: str) -> tuple[str, str]:
 
     return username or "admin", password or "(could not retrieve)"
 
-
-# ============================================================================
-# Phase 6: Display Results
-# ============================================================================
 
 def display_results(
     env: dict,
@@ -507,14 +419,7 @@ def display_results(
     console.print()
 
 
-# ============================================================================
-# Main
-# ============================================================================
-
 def main() -> None:
-    """Orchestrate the full connection flow."""
-
-    # Welcome banner
     console.print()
     console.print(
         Panel(
@@ -527,10 +432,6 @@ def main() -> None:
     )
     console.print()
 
-    # Auth: ensure gcloud credentials before any API calls
-    ensure_auth()
-
-    # Phase 1: Environment
     with Progress(
         SpinnerColumn(), TextColumn("[cyan]{task.description}"),
         console=console, transient=True,
@@ -539,7 +440,6 @@ def main() -> None:
         env = detect_environment()
     console.print(f"  [green]\u2713[/green] Project: {env['project_id']}")
 
-    # Phase 2: Discovery
     with Progress(
         SpinnerColumn(), TextColumn("[cyan]{task.description}"),
         console=console, transient=True,
@@ -549,7 +449,6 @@ def main() -> None:
     deployment_name = deployment.get("name", "").split("/")[-1]
     console.print(f"  [green]\u2713[/green] Deployment: {deployment_name}")
 
-    # Phase 3: Extract details
     with Progress(
         SpinnerColumn(), TextColumn("[cyan]{task.description}"),
         console=console, transient=True,
@@ -561,7 +460,6 @@ def main() -> None:
     )
     console.print(f"  [green]\u2713[/green] Namespace: {details['namespace']}")
 
-    # Phase 4: Connect
     with Progress(
         SpinnerColumn(), TextColumn("[cyan]{task.description}"),
         console=console, transient=True,
@@ -570,7 +468,6 @@ def main() -> None:
         connect_to_cluster(details, env["project_id"])
     console.print(f"  [green]\u2713[/green] Connected to cluster")
 
-    # Phase 5: Port forward + credentials
     with Progress(
         SpinnerColumn(), TextColumn("[cyan]{task.description}"),
         console=console, transient=True,
@@ -581,10 +478,8 @@ def main() -> None:
     console.print(f"  [green]\u2713[/green] Port forwarding active (localhost:8080)")
     console.print(f"  [green]\u2713[/green] Credentials retrieved")
 
-    # Phase 6: Display results
     display_results(env, details, username, password)
 
-    # Keep running until user exits.
     try:
         pf_process.wait()
     except KeyboardInterrupt:
@@ -604,7 +499,6 @@ if __name__ == "__main__":
         console.print("\n[dim]Cancelled.[/dim]\n")
         sys.exit(0)
     except Exception as exc:
-        # Escape Rich markup in the error message to avoid rendering issues.
         error_msg = str(exc).replace("[", "\\[").replace("]", "\\]")
         console.print(f"\n[red]Error: {error_msg}[/red]\n")
         sys.exit(1)
