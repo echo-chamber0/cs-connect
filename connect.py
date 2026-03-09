@@ -71,6 +71,65 @@ def _fatal(message: str, hint: str | None = None) -> None:
 
 
 # ============================================================================
+# Auth: Ensure gcloud is authenticated before any API calls
+# ============================================================================
+
+def ensure_auth() -> None:
+    """Ensure gcloud is authenticated, triggering login automatically if needed.
+
+    In Cloud Shell the ``gcloud auth login --update-adc`` command opens a
+    one-click "Authorize" popup — no copy-pasting or manual commands required.
+    After successful auth the active project is set explicitly so that all
+    subsequent gcloud/kubectl calls target the correct project.
+    """
+    # --- silent auth check ---------------------------------------------------
+    token_result = _run(["gcloud", "auth", "print-access-token"], timeout=15)
+    if token_result.returncode == 0 and token_result.stdout.strip():
+        # Already authenticated — make sure the project is set and return.
+        _set_active_project()
+        return
+
+    # --- not authenticated — run interactive login ----------------------------
+    console.print("  [cyan]Authorizing Cloud Shell access...[/cyan]")
+
+    # Must run interactively so the browser/popup auth flow is visible.
+    auth_result = subprocess.run(
+        ["gcloud", "auth", "login", "--update-adc"],
+        check=False,
+    )
+
+    if auth_result.returncode != 0:
+        _fatal(
+            "Authentication did not complete.",
+            "Run manually:  gcloud auth login --update-adc",
+        )
+
+    # --- verify auth succeeded ------------------------------------------------
+    verify = _run(["gcloud", "auth", "print-access-token"], timeout=15)
+    if verify.returncode != 0 or not verify.stdout.strip():
+        _fatal(
+            "Authentication could not be verified.",
+            "Run manually:  gcloud auth login --update-adc",
+        )
+
+    console.print("  [green]\u2713[/green] Authenticated")
+
+    # --- set project ----------------------------------------------------------
+    _set_active_project()
+
+
+def _set_active_project() -> None:
+    """Set the active gcloud project from environment variables."""
+    project_id = (
+        os.environ.get("DEVSHELL_PROJECT_ID")
+        or os.environ.get("GOOGLE_CLOUD_PROJECT")
+        or ""
+    ).strip()
+    if project_id:
+        _run(["gcloud", "config", "set", "project", project_id], timeout=10)
+
+
+# ============================================================================
 # Phase 1: Environment Detection
 # ============================================================================
 
@@ -453,6 +512,9 @@ def main() -> None:
         )
     )
     console.print()
+
+    # Auth: ensure gcloud credentials before any API calls
+    ensure_auth()
 
     # Phase 1: Environment
     with Progress(
