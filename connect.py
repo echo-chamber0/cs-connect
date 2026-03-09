@@ -428,6 +428,7 @@ def main() -> None:
             border_style="cyan",
             box=box.ROUNDED,
             padding=(1, 2),
+            width=50,
         )
     )
     console.print()

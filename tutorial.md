@@ -2,38 +2,23 @@
 
 <walkthrough-tutorial-duration duration="3"></walkthrough-tutorial-duration>
 
-## Connecting
-
-The setup script connects to your deployed Data Commons instance automatically.
-
-If it hasn't started yet, run:
+## Connect
 
 ```sh
 python3 connect.py
 ```
 
-Watch the terminal for green checkmarks. Once you see **"Your instance is ready"**, click **Next**.
+The script finds your deployment, connects, and displays links and credentials. Wait for **"Your instance is ready"**, then click **Next**.
 
 ---
 
-## Access Your Instance
+## Use Your Instance
 
-Click the links shown in the terminal:
+Everything you need is in the terminal output: app links, admin credentials, and GCS bucket name.
 
-- **Open Data Commons** -- your main application
-- **Open Admin Panel** -- administration at `/admin` (credentials in terminal)
+You can also use <walkthrough-spotlight-pointer spotlightId="devshell-web-preview-button">Web Preview</walkthrough-spotlight-pointer> on port 8080.
 
-Or use <walkthrough-spotlight-pointer spotlightId="devshell-web-preview-button">Web Preview</walkthrough-spotlight-pointer> on port 8080.
-
----
-
-## Upload Data
-
-To upload custom data, copy files to the GCS bucket shown in the terminal:
-
-```sh
-gsutil cp -r ./your-data/* gs://YOUR_BUCKET_NAME/
-```
+To upload custom data: `gsutil cp -r ./your-data/* gs://YOUR_BUCKET_NAME/`
 
 ---
 
@@ -43,4 +28,4 @@ gsutil cp -r ./your-data/* gs://YOUR_BUCKET_NAME/
 
 To reconnect: `python3 connect.py`
 
-[Data Commons documentation](https://docs.datacommons.org/custom_dc/) | [Infrastructure Manager](https://console.cloud.google.com/infra-manager/deployments)
+[Data Commons docs](https://docs.datacommons.org/custom_dc/) | [Infrastructure Manager](https://console.cloud.google.com/infra-manager/deployments)
