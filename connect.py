@@ -75,24 +75,30 @@ def _fatal(message: str, hint: str | None = None) -> None:
 # ============================================================================
 
 def ensure_auth() -> None:
-    """Ensure gcloud is authenticated, triggering login automatically if needed.
+    """Ensure gcloud is authenticated, triggering login only outside Cloud Shell.
 
-    In Cloud Shell the ``gcloud auth login --update-adc`` command opens a
-    one-click "Authorize" popup — no copy-pasting or manual commands required.
-    After successful auth the active project is set explicitly so that all
-    subsequent gcloud/kubectl calls target the correct project.
+    In Cloud Shell (the expected path), the user is already authenticated via
+    their Console session.  We just set the active project and move on.
+    Outside Cloud Shell, we attempt interactive login if needed.
     """
-    # --- silent auth check ---------------------------------------------------
+    in_cloud_shell = os.environ.get("CLOUD_SHELL") == "true"
+
+    if in_cloud_shell:
+        # Cloud Shell inherits auth from the Console session.
+        # Skip token checks — they can give false negatives and trigger
+        # confusing "You are already authenticated" prompts.
+        _set_active_project()
+        return
+
+    # --- outside Cloud Shell: check token ------------------------------------
     token_result = _run(["gcloud", "auth", "print-access-token"], timeout=15)
     if token_result.returncode == 0 and token_result.stdout.strip():
-        # Already authenticated — make sure the project is set and return.
         _set_active_project()
         return
 
     # --- not authenticated — run interactive login ----------------------------
-    console.print("  [cyan]Authorizing Cloud Shell access...[/cyan]")
+    console.print("  [cyan]Authorizing access...[/cyan]")
 
-    # Must run interactively so the browser/popup auth flow is visible.
     auth_result = subprocess.run(
         ["gcloud", "auth", "login", "--update-adc"],
         check=False,
@@ -113,8 +119,6 @@ def ensure_auth() -> None:
         )
 
     console.print("  [green]\u2713[/green] Authenticated")
-
-    # --- set project ----------------------------------------------------------
     _set_active_project()
 
 
