@@ -49,6 +49,18 @@ def _fatal(message: str, hint: str | None = None) -> None:
     sys.exit(1)
 
 
+def _find_free_port(start: int = 8080, max_attempts: int = 10) -> int:
+    """Find an available local port starting from *start*."""
+    for port in range(start, start + max_attempts):
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.bind(("127.0.0.1", port))
+                return port
+        except OSError:
+            continue
+    _fatal(f"No free port found in range {start}-{start + max_attempts - 1}.")
+
+
 def detect_environment() -> dict:
     """Detect Cloud Shell environment and active GCP project."""
     project_id = (
@@ -308,13 +320,16 @@ def connect_to_cluster(details: dict, project_id: str) -> None:
         console.print("[yellow]Some pods may not be ready yet. Continuing...[/yellow]")
 
 
-def start_port_forward(namespace: str) -> subprocess.Popen:
-    """Start kubectl port-forward in the background."""
+def start_port_forward(namespace: str, local_port: int) -> tuple[subprocess.Popen, int]:
+    """Start kubectl port-forward in the background.
+
+    Returns (process, local_port).
+    """
     process = subprocess.Popen(
         [
             "kubectl", "port-forward",
             "-n", namespace,
-            "svc/datacommons", "8080:8080",
+            "svc/datacommons", f"{local_port}:8080",
         ],
         stdout=subprocess.DEVNULL,
         stderr=subprocess.PIPE,
@@ -325,8 +340,8 @@ def start_port_forward(namespace: str) -> subprocess.Popen:
             stderr = process.stderr.read().decode() if process.stderr else ""
             _fatal("Port-forward failed.", stderr.strip() or None)
         try:
-            with socket.create_connection(("127.0.0.1", 8080), timeout=0.5):
-                return process
+            with socket.create_connection(("127.0.0.1", local_port), timeout=0.5):
+                return process, local_port
         except OSError:
             time.sleep(0.5)
 
@@ -334,7 +349,7 @@ def start_port_forward(namespace: str) -> subprocess.Popen:
         stderr = process.stderr.read().decode() if process.stderr else ""
         _fatal("Port-forward failed.", stderr.strip() or None)
 
-    return process  # Process alive but port may not be ready yet
+    return process, local_port
 
 
 def get_credentials(namespace: str) -> tuple[str, str]:
@@ -375,16 +390,17 @@ def display_results(
     details: dict,
     username: str,
     password: str,
+    local_port: int = 8080,
 ) -> None:
     """Show clickable links, credentials, and bucket info."""
     web_host = env.get("web_host", "")
 
     if web_host:
-        app_url = f"https://8080-{web_host}"
-        admin_url = f"https://8080-{web_host}/admin"
+        app_url = f"https://{local_port}-{web_host}"
+        admin_url = f"https://{local_port}-{web_host}/admin"
     else:
-        app_url = "http://localhost:8080"
-        admin_url = "http://localhost:8080/admin"
+        app_url = f"http://localhost:{local_port}"
+        admin_url = f"http://localhost:{local_port}/admin"
 
     gcs_line = ""
     if details.get("gcs_bucket"):
@@ -474,12 +490,15 @@ def main() -> None:
         console=console, transient=True,
     ) as progress:
         progress.add_task("Setting up access...", total=None)
-        pf_process = start_port_forward(details["namespace"])
+        local_port = _find_free_port()
+        pf_process, local_port = start_port_forward(details["namespace"], local_port)
         username, password = get_credentials(details["namespace"])
-    console.print(f"  [green]\u2713[/green] Port forwarding active (localhost:8080)")
+    console.print(f"  [green]\u2713[/green] Port forwarding active (localhost:{local_port})")
+    if local_port != 8080:
+        console.print(f"  [yellow]Note: Using port {local_port} (8080 was in use)[/yellow]")
     console.print(f"  [green]\u2713[/green] Credentials retrieved")
 
-    display_results(env, details, username, password)
+    display_results(env, details, username, password, local_port)
 
     try:
         pf_process.wait()

@@ -1,24 +1,37 @@
-# Data Commons Accelerator
+# Data Commons Quick Start
 
-<walkthrough-tutorial-duration duration="3"></walkthrough-tutorial-duration>
+<walkthrough-tutorial-duration duration="5"></walkthrough-tutorial-duration>
 
-## Connect
+## Connect to Your Instance
+
+Run the connection script:
 
 ```sh
 python3 connect.py
 ```
 
-The script finds your deployment, connects, and displays links and credentials. Wait for **"Your instance is ready"**, then click **Next**.
+Wait for **"Your instance is ready"** to appear. The script displays your app URL, admin URL, credentials, and GCS bucket name. Keep this terminal open.
 
 ---
 
-## Use Your Instance
+## Explore the Application
 
-Everything you need is in the terminal output: app links, admin credentials, and GCS bucket name.
+- Open the **app link** from the terminal output, or use <walkthrough-spotlight-pointer spotlightId="devshell-web-preview-button">Web Preview</walkthrough-spotlight-pointer> on port 8080
+- Type a natural language query in the search bar, for example:
+  - *"Population of California over time"*
+  - *"Median household income in US counties"*
+- Browse the built-in tools:
+  - **Timeline** (`/tools/timeline`) — plot statistical variables over time
+  - **Map** (`/tools/map`) — compare a variable across regions
+  - **Stat Var Explorer** (`/tools/statvar`) — browse available variables and their metadata
 
-You can also use <walkthrough-spotlight-pointer spotlightId="devshell-web-preview-button">Web Preview</walkthrough-spotlight-pointer> on port 8080.
+---
 
-To upload custom data: `gsutil cp -r ./your-data/* gs://YOUR_BUCKET_NAME/`
+## Admin Panel
+
+- Open the **admin link** from the terminal and log in with the displayed credentials
+- **Data & Files** tab — upload CSV data files directly through the browser
+- **Theme Settings** tab — customize logo, site name, domain, and contact info
 
 ---
 
@@ -26,6 +39,10 @@ To upload custom data: `gsutil cp -r ./your-data/* gs://YOUR_BUCKET_NAME/`
 
 <walkthrough-conclusion-trophy></walkthrough-conclusion-trophy>
 
-To reconnect: `python3 connect.py`
+To reconnect later: `python3 connect.py`
 
-[Data Commons docs](https://docs.datacommons.org/custom_dc/) | [Infrastructure Manager](https://console.cloud.google.com/infra-manager/deployments)
+- [Data Commons documentation](https://docs.datacommons.org/custom_dc/)
+- [Infrastructure Manager](https://console.cloud.google.com/infra-manager/deployments)
+
+
+cd /home/ubuntu/.claude && claude --resume 6cff5424-cab3-4cbd-b9bc-ae6b02956d82
