@@ -491,9 +491,7 @@ def main() -> None:
         local_port = _find_free_port()
         pf_process, local_port = start_port_forward(details["namespace"], local_port)
         username, password = get_credentials(details["namespace"])
-    console.print(f"  [green]\u2713[/green] Port forwarding active (localhost:{local_port})")
-    if local_port != 8080:
-        console.print(f"  [yellow]Note: Using port {local_port} (8080 was in use)[/yellow]")
+    console.print(f"  [green]\u2713[/green] Port forwarding active (port {local_port})")
     console.print(f"  [green]\u2713[/green] Credentials retrieved")
 
     display_results(env, details, username, password, local_port)
