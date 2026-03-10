@@ -298,7 +298,7 @@ def extract_details(deployment: dict, project_id: str) -> dict:
 
 
 def connect_to_cluster(details: dict, project_id: str) -> None:
-    """Configure kubectl credentials and wait for pods to become ready."""
+    """Configure kubectl credentials for the target cluster."""
     result = _run(
         [
             "gcloud", "container", "clusters", "get-credentials",
@@ -313,22 +313,6 @@ def connect_to_cluster(details: dict, project_id: str) -> None:
             f"Failed to connect to cluster: {details['cluster_name']}",
             result.stderr.strip() or None,
         )
-
-    result = _run(
-        [
-            "kubectl", "wait", "--for=condition=ready", "pod",
-            "-l", "app=datacommons",
-            "-n", details["namespace"],
-            "--timeout=180s",
-        ],
-        timeout=200,
-    )
-    if result.returncode != 0:
-        # Show pod status for diagnostics but continue.
-        diag = _run(["kubectl", "get", "pods", "-n", details["namespace"]], timeout=10)
-        if diag.returncode == 0:
-            console.print(f"[dim]{diag.stdout}[/dim]")
-        console.print("[yellow]Some pods may not be ready yet. Continuing...[/yellow]")
 
 
 def start_port_forward(namespace: str, local_port: int) -> tuple[subprocess.Popen, int]:
@@ -495,7 +479,7 @@ def main() -> None:
         SpinnerColumn(), TextColumn("[cyan]{task.description}"),
         console=console, transient=True,
     ) as progress:
-        progress.add_task("Connecting to cluster and waiting for pods...", total=None)
+        progress.add_task("Connecting to cluster...", total=None)
         connect_to_cluster(details, env["project_id"])
     console.print(f"  [green]\u2713[/green] Connected to cluster")
 
