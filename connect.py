@@ -17,9 +17,11 @@ try:
     from rich.panel import Panel
     from rich.progress import Progress, SpinnerColumn, TextColumn
     from rich import box
+    import questionary
 except ImportError:
     subprocess.check_call(
-        [sys.executable, "-m", "pip", "install", "--user", "-q", "rich"],
+        [sys.executable, "-m", "pip", "install", "--user", "-q",
+         "rich", "questionary"],
     )
     import importlib
     import site
@@ -29,6 +31,10 @@ except ImportError:
     from rich.panel import Panel
     from rich.progress import Progress, SpinnerColumn, TextColumn
     from rich import box
+    try:
+        import questionary
+    except ImportError:
+        questionary = None
 
 console = Console()
 
@@ -106,8 +112,8 @@ def _is_datacommons_deployment(deployment: dict) -> bool:
     return False
 
 
-def discover_deployment(project_id: str) -> dict:
-    """Find Data Commons deployment via Infrastructure Manager."""
+def discover_deployments(project_id: str) -> list[dict]:
+    """Fetch active Data Commons deployments from Infrastructure Manager."""
     result = _run(
         [
             "gcloud", "infra-manager", "deployments", "list",
@@ -151,30 +157,35 @@ def discover_deployment(project_id: str) -> dict:
             "This tool only works with Data Commons Accelerator deployments from GCP Marketplace.",
         )
 
+    return dc_deployments
+
+
+def select_deployment(dc_deployments: list[dict]) -> dict:
+    """Let the user pick a deployment when multiple exist."""
     if len(dc_deployments) == 1:
         return dc_deployments[0]
 
-    console.print(f"\n[cyan]Found {len(dc_deployments)} Data Commons deployments:[/cyan]\n")
     labels: list[str] = []
-    for i, d in enumerate(dc_deployments, 1):
+    for d in dc_deployments:
         name = d.get("name", "").split("/")[-1]
         region = d.get("_location", "unknown")
         create_date = d.get("createTime", "")[:10] or "unknown"
-        label = f"{name} ({region}, created: {create_date})"
-        labels.append(label)
-        console.print(f"  {i}. {label}")
-    console.print()
+        labels.append(f"{name} ({region}, created: {create_date})")
 
-    try:
-        import questionary
-
-        selected = questionary.select("Select deployment:", choices=labels).ask()
+    if questionary:
+        console.print()
+        selected = questionary.select(
+            "Select deployment:",
+            choices=labels,
+        ).ask()
         if not selected:
             sys.exit(0)
         return dc_deployments[labels.index(selected)]
-    except ImportError:
-        pass
 
+    console.print()
+    for i, label in enumerate(labels, 1):
+        console.print(f"  {i}. {label}")
+    console.print()
     choice = input(f"Select deployment (1-{len(dc_deployments)}): ").strip()
     try:
         idx = int(choice) - 1
@@ -461,10 +472,13 @@ def main() -> None:
         SpinnerColumn(), TextColumn("[cyan]{task.description}"),
         console=console, transient=True,
     ) as progress:
-        progress.add_task("Discovering deployment...", total=None)
-        deployment = discover_deployment(env["project_id"])
+        progress.add_task("Discovering deployments...", total=None)
+        dc_deployments = discover_deployments(env["project_id"])
+    console.print(f"  [green]\u2713[/green] Found {len(dc_deployments)} deployment{'s' if len(dc_deployments) != 1 else ''}")
+
+    deployment = select_deployment(dc_deployments)
     deployment_name = deployment.get("name", "").split("/")[-1]
-    console.print(f"  [green]\u2713[/green] Deployment: {deployment_name}")
+    console.print(f"  [green]\u2713[/green] Selected: {deployment_name}")
 
     with Progress(
         SpinnerColumn(), TextColumn("[cyan]{task.description}"),
